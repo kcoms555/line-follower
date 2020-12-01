@@ -51,6 +51,56 @@ cam_frame_counter = 0
 vs = None
 runner = Runner(-1)
 
+compensated_angle_sign = 1
+def get_compensated_angle(angle, is_compensatable = False):
+	global compensated_angle_sign
+	if abs(angle * compensated_angle_sign) < 60:
+		if is_compensatable:
+			if angle > 0:
+				compensated_angle_sign = 1
+			else:
+				compensated_angle_sign = -1
+		return angle
+	elif angle * compensated_angle_sign > 0:
+		return angle
+	else:
+		return 90 * compensated_angle_sign
+
+def get_continuous_point(point1, point2, target):
+	global compensated_angle_sign
+	direction_angle = get_angle([point1[0] - point2[0], point1[1] - point2[1]], (0, 1))
+	forward = None
+	backward = None
+	if abs(direction_angle) < 15:
+		if point1[1] > point2[1]:
+			forward = point1
+			backward = point2
+		else:
+			forward = point2
+			backward = point1
+	else:
+		if compensated_angle_sign > 0:
+			if point1[0] > point2[0]:
+				forward = point1
+				backward = point2
+			else:
+				forward = point2
+				backward = point1
+		else:
+			if point1[0] < point2[0]:
+				forward = point1
+				backward = point2
+			else:
+				forward = point2
+				backward = point1
+	if target == 'forward':
+		return forward
+	elif target == 'backward':
+		return backward
+	else:
+		return None
+	
+
 def process_video(framerate):
 	# grab global references to the video stream, output frame, and
 	# lock variables
@@ -63,40 +113,92 @@ def process_video(framerate):
 		origin_frame = vs.read()
 		origin_frame = cv2.flip(origin_frame, 0)
 		origin_frame = cv2.flip(origin_frame, 1)
+		origin_frame = origin_frame[:160,:]
 
 		# convert the frame to grayscale
 		gray = cv2.cvtColor(origin_frame, cv2.COLOR_BGR2GRAY)
 
-		ret, gray = cv2.threshold(gray, np.mean(gray)*(1/2), 255, cv2.THRESH_BINARY_INV)
-		height, width = gray.shape
+		mean = np.mean(gray)
 
-		# m is a moment of grayscale image
+		ret, gray = cv2.threshold(gray, mean*(3/5), 255, cv2.THRESH_BINARY_INV)
+		height, width = gray.shape
 		m = cv2.moments(gray, False)
+
+		# find contour
+		vx, vy, x, y = 0, -1, int(width/2), int(height/2)
+		line_angle = 0
+		center_angle = 0
+		contours, hierarchy = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[-2:]
+		line_rel = 0
+		# point1, point2 are two points of end of line.
+		point1 = (0, 0)
+		point2 = (0, 0)
+		direction_point = (0, 0)
+
+		if len(contours) > 0:
+			contours.sort(key=lambda ar: cv2.contourArea(ar))
+			largest_contour = contours[-1]
+			[vx, vy, x, y] = cv2.fitLine(largest_contour, cv2.DIST_L2, 0, 0.01, 0.01)
+
+			# get line reliability
+			line_count = 0
+			line_gray_nz_count = 0
+			lcx = x
+			lcy = y
+			while(True):
+				lcx += vx
+				lcy += vy
+				if 0 <= lcx <= width-1 and 0 <= lcy <= height-1:
+					line_count += 1
+					if gray[int(lcy), int(lcx)] != 0:
+						line_gray_nz_count += 1
+				else:
+					break
+			point1 = (lcx[0], lcy[0])
+			lcx = x
+			lcy = y
+			while(True):
+				lcx -= vx
+				lcy -= vy
+				if 0 <= lcx <= width-1 and 0 <= lcy <= height-1:
+					line_count += 1
+					if gray[int(lcy), int(lcx)] != 0:
+						line_gray_nz_count += 1
+				else:
+					break
+			point2 = (lcx[0], lcy[0])
+			line_rel = 0 if line_count == 0 else 1. * line_gray_nz_count/line_count
+				
+			# y-axis is fliped. To get angle, vy should be fliped.
+			vxf = vx[0]
+			vyf = -vy[0]
+			if vyf < 0:
+				vxf = -vxf
+				vyf = -vyf
+			line_angle = get_compensated_angle(get_angle((vxf, vyf), (0, 1)), True)
+			direction_point = get_continuous_point(point1, point2, 'forward')
+			origin_frame = cv2.line(origin_frame, point1, point2, (0,0,255),2)
 
 		# downscale
 		# 320, 240
-		diminish_ratio = 0.8
-		hblocks = 31
-		wblocks = 31
+		hblocks = 9
+		wblocks = 9
 		hblock = int(height/hblocks)
 		wblock = int(width/wblocks)
 
 		downscaled_gray = gray.copy()
 		for i in range(hblocks):
 			if i == hblocks-1:
-				downscaled_gray[hblock*i:] = downscaled_gray[hblock*i:] * ((diminish_ratio)**i)
-			else:
-				downscaled_gray[hblock*i:hblock*(i+1)] = downscaled_gray[hblock*i:hblock*(i+1)] * ((diminish_ratio)**i)
+				downscaled_gray[hblock*i:] = downscaled_gray[hblock*i:] * ((0.7)**i)
+			downscaled_gray[hblock*i:hblock*(i+1)] = downscaled_gray[hblock*i:hblock*(i+1)] * ((0.7)**i)
 
 		for i in range(wblocks):
 			maxi = (1.*(wblocks-1)/2.0)
 			multiplier = maxi - abs(i-maxi)
 			if i == wblocks-1:
-				downscaled_gray[:,wblock*i:] = downscaled_gray[:,wblock*i:] * ((diminish_ratio)**multiplier)
-			else:
-				downscaled_gray[:,wblock*i:wblock*(i+1)] = downscaled_gray[:,wblock*i:wblock*(i+1)] * ((diminish_ratio)**multiplier)
+				downscaled_gray[:,wblock*i:] = downscaled_gray[:,wblock*i:] * ((0.7)**multiplier)
+			downscaled_gray[:,wblock*i:wblock*(i+1)] = downscaled_gray[:,wblock*i:wblock*(i+1)] * ((0.7)**multiplier)
 
-		# m2 is a moment of compensated grayscale image
 		m2 = cv2.moments(downscaled_gray, False)
 
 		if m["m00"] == 0:
@@ -113,27 +215,47 @@ def process_video(framerate):
 			cY2 = int(m2["m01"] / m2["m00"])
 		cv2.circle(origin_frame, (cX, cY), 5, (255, 255, 255), -1)
 		cv2.circle(origin_frame, (cX2, cY2), 5, (255, 255, 0), -1)
+		cv2.circle(origin_frame, direction_point, 5, (0, 255, 0), -1)
 		
 		# acquire the lock, set the output frame, and release the lock
 		with outputlock1: outputFrame1 = origin_frame.copy()
-		with outputlock2: outputFrame2 = downscaled_gray.copy()
-		cam_frame_counter += 1
+		with outputlock2: outputFrame2 = gray.copy()
 
 		width_mid = width/2
 		center = cX2 - 0 # bias
 		if center < 0: center = 0
 		if center > width: center = width
-		degree = ((center - width_mid)/width_mid) * 90
+		degree_from_momentum = ((center - width_mid)/width_mid) * 90
 
-		degree *= 2
+		thres = 0.3
+		degree_from_line = ((direction_point[0] - width_mid)/width_mid) * 90
+		degree = 0
+		if line_rel < thres:
+			degree = degree_from_momentum
+		else:
+			degree = degree_from_line
+			#degree = (degree_from_line/(1.-thres))*(line_rel-thres) + (degree_from_momentum/(thres-1.))*(line_rel-1.)
+		
+		#degree = degree_from_line
+
+		degree *= 1.5
 
 		if degree > 90: degree = 90
 		if degree < -90: degree = -90
 
-		sweight = ((1-0.7)/height) * (height - cY2) + 0.7
+		sweight = 0.7 + (0.3) * (1 - abs(degree)/90)
+		# sweight = ((1-0.6)/height) * (height - cY2) + 0.6
 
+		cam_frame_counter += 1
 		if cam_frame_counter % framerate == 0:
+			print(f'mean : {mean}')
+			print(f'degree_from_momentum : {degree_from_momentum}')
+			print(f'degree_from_line : {degree_from_line}')
 			print(f'degree : {degree}')
+			print(f'vx, vy, x, y : {vx}, {vy}, {x}, {y}')
+			print(f'line_angle : {line_angle}')
+			print(f'center_angle : {center_angle}')
+			print(f'line_rel : {line_rel}')
 
 		# control runner
 		if not runner.control_check():

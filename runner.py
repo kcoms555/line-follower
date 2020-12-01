@@ -77,9 +77,9 @@ class Runner:
 		elif -90 <= d <= 0:
 			pwm = (s, (abs(d)/90) * 100, s, 0)
 		elif 90 <= d <= 180:
-			pwm = (0, s, (abs(180-d)/90) * 100, s)
-		elif 90 <= d <= 180:
-			pwm = ((abs(180-d)/90) * 100, s, 0, s)
+			pwm = (0, s, ((180-abs(d))/90) * 100, s)
+		elif -180 <= d <= -90:
+			pwm = (((180-abs(d))/90) * 100, s, 0, s)
 			
 		print(f'go! degree: {Runner.degree} pwm : {pwm}')
 		Runner.pwm_A_X.ChangeDutyCycle(pwm[0])
@@ -98,6 +98,9 @@ class Runner:
 	def addspeed(self, add_num):
 		if not self.control_check(): return
 		self.setspeed(Runner.speed + add_num)
+	
+	def getspeed(self):
+		return Runner.speed
 	
 	# -180 ~ 180
 	def setdegree(self, degree):
@@ -140,7 +143,7 @@ class Runner:
 	
 	def release_control(self):
 		if Runner.now_control == self.control:
-			Runner.now_control = -1
+			Runner.now_control = -10000
 			print(f'{self.control} releases control')
 			return True
 		else:

@@ -5,25 +5,11 @@ import websockets
 import parse
 import json
 import math
+from vector import get_vector_sum
+from vector import get_vector_len
+from vector import get_angle
 
 PORT = 3003
-
-def vector_sum(A, B):
-	return (A[0]+B[0], A[1]+B[1])
-def get_vector_len(vector):
-	return (vector[0]**2 + vector[1]**2)**(1./2)
-def get_angle(v1, v2):
-	l1 = get_vector_len(v1)
-	l2 = get_vector_len(v2)
-	if l1 * l2 == 0:
-		return 0
-	angle_asin_rad = math.asin((v1[0]*v2[1]-v1[1]*v2[0])/(l1 * l2))
-	angle_acos_rad = math.acos((v1[0]*v2[0]+v1[1]*v2[1])/(l1 * l2)) # pi ~ 0
-	if angle_asin_rad >= 0:
-		rad = angle_acos_rad
-	else:
-		rad = -angle_acos_rad
-	return rad * 180 / math.pi
 	
 runner = Runner(2)
 
@@ -65,23 +51,23 @@ class UserStatus:
 				vector = (0, 0)
 				degree_count = 0
 				if data['1']:
-					vector = vector_sum(vector, (-1/root2, -1/root2))
+					vector = get_vector_sum(vector, (-1/root2, -1/root2))
 				if data['2']:
-					vector = vector_sum(vector, (0, -1))
+					vector = get_vector_sum(vector, (0, -1))
 				if data['3']:
-					vector = vector_sum(vector, (1/root2, -1/root2))
+					vector = get_vector_sum(vector, (1/root2, -1/root2))
 				if data['4']:
-					vector = vector_sum(vector, (-1, 0))
+					vector = get_vector_sum(vector, (-1, 0))
 				if data['5']:
-					vector = vector_sum(vector, (0, 0))
+					vector = get_vector_sum(vector, (0, 0))
 				if data['6']:
-					vector = vector_sum(vector, (1, 0))
+					vector = get_vector_sum(vector, (1, 0))
 				if data['7']:
-					vector = vector_sum(vector, (-1/root2, 1/root2))
+					vector = get_vector_sum(vector, (-1/root2, 1/root2))
 				if data['8']:
-					vector = vector_sum(vector, (0, 1))
+					vector = get_vector_sum(vector, (0, 1))
 				if data['9']:
-					vector = vector_sum(vector, (1/root2, 1/root2))
+					vector = get_vector_sum(vector, (1/root2, 1/root2))
 				if data['+']:
 					runner.addspeed(1)
 				if data['-']:
@@ -140,7 +126,16 @@ def server_main():
 	except KeyboardInterrupt:
 		print('server KeyboardInterrupt')
 
+server_thread = None
 def run(port = 3003):
+	global server_thread
 	PORT = port
 	server_thread = Thread(target = server_main, daemon=True)
 	server_thread.start()
+
+if __name__ == '__main__':
+	try:
+		run()
+		server_thread.join()
+	finally:
+		runner.cleanup()
