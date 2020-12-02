@@ -192,6 +192,12 @@ def get_center_from_moment(gray_image):
 		cY = int(m["m01"] / m["m00"])
 	return cX, cY, found
 	
+def get_linear_combinated_point(src_point, des_point, t):
+	return (\
+		int((src_point[0] * (1-t)) + (des_point[0] * (t))), \
+		int((src_point[1] * (1-t)) + (des_point[1] * (t)))\
+	)
+	
 
 def process_video(framerate):
 	# grab global references to the video stream, output frame, and
@@ -229,24 +235,26 @@ def process_video(framerate):
 		# get angle of two points
 		# line_angle = get_compensated_angle(get_angle((point1[0]-point2[0], point1[1]-point2[1]), (0, 1)), True)
 
-		# get forwarded point
-		direction_point = get_continuous_point(point1, point2, 'forward')
+		# get forward and backward and middle point
+		forward_direction_point = get_continuous_point(point1, point2, 'forward')
+		backward_direction_point = get_continuous_point(point1, point2, 'backward')
+		middle_point = get_linear_combinated_point(backward_direction_point, forward_direction_point, 0.8)
 
 		# draw line into origin_frame
 		origin_frame = cv2.line(origin_frame, point1, point2, (0,0,255),2)
-
 		cv2.circle(origin_frame, (cX, cY), 5, (255, 255, 255), -1)
 		# cv2.circle(origin_frame, (cX2, cY2), 5, (255, 255, 0), -1)
-		cv2.circle(origin_frame, direction_point, 5, (0, 255, 0), -1)
+		cv2.circle(origin_frame, forward_direction_point, 5, (0, 255, 0), -1)
+		cv2.circle(origin_frame, middle_point, 5, (255, 0, 0), -1)
 		
 		# acquire the lock, set the output frame, and release the lock
 		with outputlock1: outputFrame1 = origin_frame.copy()
 		with outputlock2: outputFrame2 = gray.copy()
 
 		# degree_from_momentum = ( (cX2 - (width/2)) / (width/2) ) * 90
-		degree_from_end_of_line = ( (direction_point[0] - (width/2)) / (width/2) ) * 90
+		degree_from_line = ( (middle_point[0] - (width/2)) / (width/2) ) * 90
 
-		degree = degree_from_end_of_line
+		degree = degree_from_line
 		degree *= 1.5
 		if degree > 90: degree = 90
 		if degree < -90: degree = -90
@@ -255,7 +263,7 @@ def process_video(framerate):
 		cam_frame_counter += 1
 		if cam_frame_counter % framerate == 0:
 		#	print(f'degree_from_momentum : {degree_from_momentum}')
-			print(f'degree_from_end_of_line : {degree_from_end_of_line}')
+			print(f'degree_from_line : {degree_from_line}')
 			print(f'degree : {degree}')
 			print(f'line_angle : {line_angle}')
 			print(f'line_rel : {line_rel}')
@@ -321,7 +329,7 @@ try:
 		ap = argparse.ArgumentParser()
 		ap.add_argument("-i", "--ip", type=str, default="0.0.0.0",
 			help="ip address of the device")
-		ap.add_argument("-p", "--port", type=int, required=True,
+		ap.add_argument("-p", "--port", type=int, default="8000",
 			help="ephemeral port number of the server (1024 to 65535)")
 		ap.add_argument("-x", "--width", type=int, default=320,
 			help="width size of camera")
